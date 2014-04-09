@@ -78,7 +78,7 @@ int send_next_packet(int sock, struct sockaddr_in out) {
     exit(1);
   }
 
-  return 1;
+  return packet_len - sizeof(header);
 }
 
 void send_final_packet(int sock, struct sockaddr_in out) {
@@ -137,8 +137,8 @@ int main(int argc, char *argv[]) {
   t.tv_usec = 0;
 
   int seq_num = 0;
-  int last_ack = -1;
   int window_size = 10;
+  int last_ack = -1;
   int incomplete = 1;
   int outstanding = 0;
 
@@ -146,6 +146,7 @@ int main(int argc, char *argv[]) {
     while (outstanding < window_size) {
       incomplete = send_next_packet(sock, out);
       seq_num++;
+      sequence += incomplete;
       outstanding++;
     }
 
@@ -167,11 +168,11 @@ int main(int argc, char *argv[]) {
 
         header *myheader = get_header(buf);
 
-        if ((myheader->magic == MAGIC) && (myheader->sequence >= sequence) && (myheader->ack == 1)) {
+        if ((myheader->magic == MAGIC) && (myheader->sequence <= sequence) && (myheader->ack == 1)) {
           mylog("[recv ack] %d\n", myheader->sequence);
-          sequence = myheader->sequence;
+          last_ack = myheader->sequence;
           done = 1;
-          outstanding = seq_num - sequence;
+          outstanding = seq_num - (last_ack / DATA_SIZE);
         } else {
           mylog("[recv corrupted ack] %x %d\n", MAGIC, sequence);
         }
