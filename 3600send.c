@@ -136,7 +136,19 @@ int main(int argc, char *argv[]) {
   t.tv_sec = 30;
   t.tv_usec = 0;
 
-  while (send_next_packet(sock, out)) {
+  int seq_num = 0;
+  int last_ack = -1;
+  int window_size = 10;
+  int incomplete = 1;
+  int outstanding = 0;
+
+  while (incomplete) {
+    while (outstanding < window_size) {
+      incomplete = send_next_packet(sock, out);
+      seq_num++;
+      outstanding++;
+    }
+
     int done = 0;
 
     while (! done) {
@@ -159,6 +171,7 @@ int main(int argc, char *argv[]) {
           mylog("[recv ack] %d\n", myheader->sequence);
           sequence = myheader->sequence;
           done = 1;
+          outstanding = seq_num - sequence;
         } else {
           mylog("[recv corrupted ack] %x %d\n", MAGIC, sequence);
         }
@@ -167,6 +180,40 @@ int main(int argc, char *argv[]) {
       }
     }
   }
+
+
+  // while (send_next_packet(sock, out)) {
+  //   int done = 0;
+
+  //   while (! done) {
+  //     FD_ZERO(&socks);
+  //     FD_SET(sock, &socks);
+
+  //     // wait to receive, or for a timeout
+  //     if (select(sock + 1, &socks, NULL, NULL, &t)) {
+  //       unsigned char buf[10000];
+  //       int buf_len = sizeof(buf);
+  //       int received;
+  //       if ((r
+  //         eceived = recvfrom(sock, &buf, buf_len, 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
+  //         perror("recvfrom");
+  //         exit(1);
+  //       }
+
+  //       header *myheader = get_header(buf);
+
+  //       if ((myheader->magic == MAGIC) && (myheader->sequence >= sequence) && (myheader->ack == 1)) {
+  //         mylog("[recv ack] %d\n", myheader->sequence);
+  //         sequence = myheader->sequence;
+  //         done = 1;
+  //       } else {
+  //         mylog("[recv corrupted ack] %x %d\n", MAGIC, sequence);
+  //       }
+  //     } else {
+  //       mylog("[error] timeout occurred\n");
+  //     }
+  //   }
+  // }
 
   send_final_packet(sock, out);
 
