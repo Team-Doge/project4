@@ -22,6 +22,8 @@
 
 #include "3600sendrecv.h"
 
+static int SLIDING_WINDOW_SIZE = 10;
+
 int main() {
   /**
    * I've included some basic code for opening a UDP socket in C, 
@@ -71,42 +73,44 @@ int main() {
   t.tv_usec = 0;
 
   // our receive buffer
-  int buf_len = 1500;
-  void* buf = malloc(buf_len);
+  packet* packet_buffer = (packet *) calloc(SLIDING_WINDOW_SIZE, sizeof(packet));
+  unsigned int in_window = 0;
+  unsigned int next_data = 0;
 
   // wait to receive, or for a timeout
   while (1) {
     FD_ZERO(&socks);
     FD_SET(sock, &socks);
+    packet buf;
 
     if (select(sock + 1, &socks, NULL, NULL, &t)) {
       int received;
-      if ((received = recvfrom(sock, buf, buf_len, 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
+      if ((received = recvfrom(sock, &buf, sizeof(packet), 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
         perror("recvfrom");
         exit(1);
       }
 
-//      dump_packet(buf, received);
+      buf.head = *get_header(&buf);
 
-      header *myheader = get_header(buf);
-      char *data = get_data(buf);
-  
-      if (myheader->magic == MAGIC) {
-        write(1, data, myheader->length);
-
-        mylog("[recv data] %d (%d) %s\n", myheader->sequence, myheader->length, "ACCEPTED (in-order)");
-        mylog("[send ack] %d\n", myheader->sequence + myheader->length);
-
-        header *responseheader = make_header(myheader->sequence + myheader->length, 0, myheader->eof, 1);
-        if (sendto(sock, responseheader, sizeof(header), 0, (struct sockaddr *) &in, (socklen_t) sizeof(in)) < 0) {
-          perror("sendto");
-          exit(1);
-        }
-
-        if (myheader->eof) {
-          mylog("[recv eof]\n");
-          mylog("[completed]\n");
-          exit(0);
+      if (buf.head.magic == MAGIC) {
+        mylog("[recv data] %d (%d) %s\n", buf.head.sequence, buf.head.length, "ACCEPTED (in-order)");
+        // mylog("Current sequence number: %d. Received: %d.\n", next_data, buf.head.sequence);
+        if (buf.head.sequence == next_data) {
+          // Write it
+          char *data = get_data(&buf);
+          write(1, data, buf.head.length);
+          next_data += buf.head.length;
+          mylog("[send ack] %d\n", buf.head.sequence + buf.head.length);
+          send_response_header(buf.head.sequence + buf.head.length, buf.head.eof, &in, sock);
+          if (buf.head.eof) {
+            mylog("[recv eof]\n");
+            mylog("[completed]\n");
+            exit(0);
+          }
+        } else if (buf.head.sequence > next_data) {
+          // Save it for later
+        } else {
+          // Duplicate
         }
       } else {
         mylog("[recv corrupted packet]\n");
@@ -119,4 +123,12 @@ int main() {
 
 
   return 0;
+}
+
+void send_response_header(int offset, int eof, struct sockaddr_in* in, int sock) {
+  header *responseheader = make_header(offset, 0, eof, 1);
+  if (sendto(sock, responseheader, sizeof(header), 0, (struct sockaddr *) in, (socklen_t) sizeof(*in)) < 0) {
+    perror("sendto");
+    exit(1);
+  }
 }

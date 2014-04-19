@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#define DATA_SIZE 1460
+
 typedef struct header_t {
   unsigned int magic:14;
   unsigned int ack:1;
@@ -18,6 +20,11 @@ typedef struct header_t {
   unsigned short length;
   unsigned int sequence;
 } header;
+
+typedef struct packet_t {
+	header head;
+	char data[DATA_SIZE];
+} packet;
 
 unsigned int MAGIC;
 
@@ -27,6 +34,10 @@ header *get_header(void *data);
 char *get_data(void *data);
 char *timestamp();
 void mylog(char *fmt, ...);
+void send_response_header(int offset, int eof, struct sockaddr_in* in, int sock);
+
+void print_header(header *h);
+
 
 #endif
 

@@ -144,3 +144,11 @@ void dump_packet(unsigned char *data, int size) {
         printf("[%4.4s]   %-50.50s  %s\n", addrstr, hexstr, charstr);
     }
 }
+
+void print_header(header *h) {
+  mylog("Magic: %d\n", h->magic);
+  mylog("Ack: %d\n", h->ack);
+  mylog("EOF: %d\n", h->eof);
+  mylog("Length: %d\n", h->length);
+  mylog("Sequence: %d\n", h->sequence);
+}

@@ -22,8 +22,6 @@
 
 #include "3600sendrecv.h"
 
-static int DATA_SIZE = 1460;
-
 unsigned int sequence = 0;
 
 void usage() {
@@ -44,7 +42,7 @@ int get_next_data(char *data, int size) {
  */
 void *get_next_packet(int sequence, int *len) {
   char *data = malloc(DATA_SIZE);
-  int data_len = get_next_data(data, DATA_SIZE);
+   int data_len = get_next_data(data, DATA_SIZE);
 
   if (data_len == 0) {
     free(data);
@@ -82,7 +80,7 @@ int send_next_packet(int sock, struct sockaddr_in out) {
 }
 
 void send_final_packet(int sock, struct sockaddr_in out) {
-  header *myheader = make_header(sequence+1, 0, 1, 0);
+  header *myheader = make_header(sequence, 0, 1, 0);
   mylog("[send eof]\n");
 
   if (sendto(sock, myheader, sizeof(header), 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
@@ -137,7 +135,7 @@ int main(int argc, char *argv[]) {
   t.tv_usec = 0;
 
   int seq_num = 0;
-  int window_size = 10;
+  int window_size = 1000;
   int last_ack = -1;
   int incomplete = 1;
   int outstanding = 0;
