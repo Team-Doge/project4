@@ -135,7 +135,7 @@ int main(int argc, char *argv[]) {
   t.tv_usec = 0;
 
   int seq_num = 0;
-  int window_size = 1000;
+  int window_size = 10;
   int last_ack = -1;
   int incomplete = 1;
   int outstanding = 0;

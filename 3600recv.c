@@ -22,7 +22,7 @@
 
 #include "3600sendrecv.h"
 
-static int SLIDING_WINDOW_SIZE = 10;
+static int SLIDING_WINDOW_SIZE = 100;
 
 int main() {
   /**
@@ -74,8 +74,7 @@ int main() {
 
   // our receive buffer
   packet* packet_buffer = (packet *) calloc(SLIDING_WINDOW_SIZE, sizeof(packet));
-  unsigned int in_window = 0;
-  unsigned int next_data = 0;
+  unsigned int data_read = 0;
 
   // wait to receive, or for a timeout
   while (1) {
@@ -94,21 +93,21 @@ int main() {
 
       if (buf.head.magic == MAGIC) {
         mylog("[recv data] %d (%d) %s\n", buf.head.sequence, buf.head.length, "ACCEPTED (in-order)");
-        // mylog("Current sequence number: %d. Received: %d.\n", next_data, buf.head.sequence);
-        if (buf.head.sequence == next_data) {
+        // mylog("Current sequence number: %d. Received: %d.\n", data_read, buf.head.sequence);
+        if (buf.head.sequence == data_read) {
           // Write it
-          char *data = get_data(&buf);
+          char *data = buf.data;
           write(1, data, buf.head.length);
-          next_data += buf.head.length;
-          mylog("[send ack] %d\n", buf.head.sequence + buf.head.length);
-          send_response_header(buf.head.sequence + buf.head.length, buf.head.eof, &in, sock);
+          data_read += buf.head.length;
+          write_next_packet_from_buffer(packet_buffer, &data_read);
+          send_ack(data_read, buf.head.eof, &in, sock);
           if (buf.head.eof) {
             mylog("[recv eof]\n");
             mylog("[completed]\n");
             exit(0);
           }
-        } else if (buf.head.sequence > next_data) {
-          // Save it for later
+        } else if (buf.head.sequence > data_read) {
+            store_packet(buf, packet_buffer);
         } else {
           // Duplicate
         }
@@ -125,10 +124,50 @@ int main() {
   return 0;
 }
 
+void send_ack(int data_read, int eof, struct sockaddr_in *in, int sock) {
+  mylog("[send ack] %d\n", data_read);
+  send_response_header(data_read, eof, in, sock);
+}
+
 void send_response_header(int offset, int eof, struct sockaddr_in* in, int sock) {
   header *responseheader = make_header(offset, 0, eof, 1);
   if (sendto(sock, responseheader, sizeof(header), 0, (struct sockaddr *) in, (socklen_t) sizeof(*in)) < 0) {
     perror("sendto");
     exit(1);
+  }
+}
+
+void store_packet(packet to_store, packet *packet_buffer) {
+  // Make sure the packet isn't already stored
+  for (int i = 0; i < SLIDING_WINDOW_SIZE; i++) {
+    packet p = packet_buffer[i];
+    if (p.head.magic == MAGIC && p.head.sequence == to_store.head.sequence) {
+      return;
+    }
+  }
+
+  // Save the packet in an empty spot
+  for (int i = 0; i < SLIDING_WINDOW_SIZE; i++) {
+    packet p = packet_buffer[i];
+    if (p.head.magic != MAGIC) {
+      memcpy(&packet_buffer[i], &to_store, sizeof(packet));
+      // mylog("Stored packet in position %d.\n", i);
+      break;
+    }
+  }
+}
+
+void write_next_packet_from_buffer(packet *packet_buffer, unsigned int *data_read) {
+  for (int i = 0; i < SLIDING_WINDOW_SIZE; i++) {
+    packet p = packet_buffer[i];
+    if (p.head.magic == MAGIC) {
+      if (p.head.sequence == *data_read) {
+        write(1, p.data, p.head.length);
+        *data_read += p.head.length;
+        packet_buffer[i].head.magic = 0;
+        memset(packet_buffer[i].data, '\0', DATA_SIZE);
+        i = -1; // Restart our search at the beginning of the packet list
+      }
+    }
   }
 }
