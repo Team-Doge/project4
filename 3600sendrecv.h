@@ -26,6 +26,15 @@ typedef struct packet_t {
 	char data[DATA_SIZE];
 } packet;
 
+typedef struct packet_list_t {
+    packet pack;
+    struct packet_list_t *next;
+} packet_list;
+
+typedef struct packet_list_head_t {
+	packet_list *first;
+} packet_list_head;
+
 unsigned int MAGIC;
 
 void dump_packet(unsigned char *data, int size);
@@ -39,8 +48,7 @@ void send_response_header(int offset, int eof, struct sockaddr_in* in, int sock)
 void print_header(header *h);
 
 void send_ack(int data_read, int eof, struct sockaddr_in *in, int sock);
-void store_packet(packet to_store, packet *packet_buffer);
-void write_next_packet_from_buffer(packet *packet_buffer, unsigned int *data_read);	
-
+void insert_packet_in_list(packet_list_head *list, packet *p);
+void write_packets_from_list(packet_list_head *list, unsigned int *data_read);
 #endif
 

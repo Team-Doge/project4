@@ -22,8 +22,6 @@
 
 #include "3600sendrecv.h"
 
-static int SLIDING_WINDOW_SIZE = 100;
-
 int main() {
   /**
    * I've included some basic code for opening a UDP socket in C, 
@@ -73,8 +71,9 @@ int main() {
   t.tv_usec = 0;
 
   // our receive buffer
-  packet* packet_buffer = (packet *) calloc(SLIDING_WINDOW_SIZE, sizeof(packet));
   unsigned int data_read = 0;
+  packet_list_head list;
+  list.first = NULL;
 
   // wait to receive, or for a timeout
   while (1) {
@@ -99,7 +98,7 @@ int main() {
           char *data = buf.data;
           write(1, data, buf.head.length);
           data_read += buf.head.length;
-          write_next_packet_from_buffer(packet_buffer, &data_read);
+          write_packets_from_list(&list, &data_read);
           send_ack(data_read, buf.head.eof, &in, sock);
           if (buf.head.eof) {
             mylog("[recv eof]\n");
@@ -107,7 +106,7 @@ int main() {
             exit(0);
           }
         } else if (buf.head.sequence > data_read) {
-            store_packet(buf, packet_buffer);
+            insert_packet_in_list(&list, &buf);
         } else {
           // Duplicate
         }
@@ -137,36 +136,45 @@ void send_response_header(int offset, int eof, struct sockaddr_in* in, int sock)
   }
 }
 
-void store_packet(packet to_store, packet *packet_buffer) {
-  // Make sure the packet isn't already stored
-  for (int i = 0; i < SLIDING_WINDOW_SIZE; i++) {
-    packet p = packet_buffer[i];
-    if (p.head.magic == MAGIC && p.head.sequence == to_store.head.sequence) {
-      return;
-    }
+void insert_packet_in_list(packet_list_head *list, packet *p) {
+  if (list->first == NULL) {
+    // Add as the first item
+    packet_list *new_head = (packet_list *) calloc(1, sizeof(packet_list));
+    new_head->pack = *p;
+    new_head->next = NULL;
+    list->first = new_head;
+    return;
   }
 
-  // Save the packet in an empty spot
-  for (int i = 0; i < SLIDING_WINDOW_SIZE; i++) {
-    packet p = packet_buffer[i];
-    if (p.head.magic != MAGIC) {
-      memcpy(&packet_buffer[i], &to_store, sizeof(packet));
-      // mylog("Stored packet in position %d.\n", i);
-      break;
+  packet_list *current = list->first;
+  while (current != NULL) {
+    if (current->pack.head.sequence < p->head.sequence) {
+      packet_list *new_next = (packet_list *) calloc(1, sizeof(packet_list));
+      new_next->pack = *p;
+      new_next->next = current->next;
+      current->next = new_next;
+      return;
     }
+    current = current->next;
   }
 }
 
-void write_next_packet_from_buffer(packet *packet_buffer, unsigned int *data_read) {
-  for (int i = 0; i < SLIDING_WINDOW_SIZE; i++) {
-    packet p = packet_buffer[i];
-    if (p.head.magic == MAGIC) {
-      if (p.head.sequence == *data_read) {
-        write(1, p.data, p.head.length);
-        *data_read += p.head.length;
-        packet_buffer[i].head.magic = 0;
-        memset(packet_buffer[i].data, '\0', DATA_SIZE);
-        i = -1; // Restart our search at the beginning of the packet list
+void write_packets_from_list(packet_list_head *list, unsigned int *data_read) {
+  if (list->first != NULL) {
+    packet_list *current = list->first;
+    
+    while (current != NULL) {
+      unsigned int seq_num = current->pack.head.sequence;
+      if (seq_num == *data_read) {
+        // Write
+        write(1, current->pack.data, current->pack.head.length);
+        *data_read += current->pack.head.length;
+        list->first = current->next;
+        packet_list *next = current->next;
+        free(current);
+        current = next;
+      } else {
+        break;
       }
     }
   }
