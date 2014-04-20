@@ -152,3 +152,23 @@ void print_header(header *h) {
   mylog("Length: %d\n", h->length);
   mylog("Sequence: %d\n", h->sequence);
 }
+
+unsigned short checksum(unsigned short *buf, unsigned short buf_len) {
+  unsigned short sum = 0;
+  sum = *buf | ~(*buf);
+  if (sum & 0xFFFF0000) {
+    sum &= 0xFFFF;
+    sum++;
+  }
+  return ~(sum & 0xFFFF);
+} 
+
+int checksum_compare(unsigned short check_receiver, unsigned short check_sender) {
+  if (check_receiver & check_sender == 0) {
+    // Checksums of receiver and sender do not match.  Corrupt
+    return -1;
+  }
+  else {
+    return 0;
+  }
+}

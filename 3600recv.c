@@ -105,6 +105,21 @@ int main() {
             mylog("[completed]\n");
             exit(0);
           }
+          unsigned int check = checksum((unsigned short *) *data, (unsigned short) sizeof(packet));
+          if (check != 0) {
+            mylog("[recv corrupted packet - checksum]\n");
+            mylog("Checksum: Buffer = %d\n", (unsigned int *) *data);
+            mylog("Checksum: Buffer Length = %d\n", sizeof(packet));
+            mylog("Checksum: Sum = %d\n", check);
+            exit(0);
+          }
+          else {
+          // SIMPLY FOR DEBUGGING PURPOSES.  DELETE ELSE AFTER
+            mylog("[recv check - checksum]\n");
+            mylog("Checksum: Buffer = %d\n", *data);
+            mylog("Checksum: Buffer Length = %d\n", sizeof(packet));
+            mylog("Checksum: Sum = %d\n", check);
+          }
         } else if (buf.head.sequence > data_read) {
             insert_packet_in_list(&list, &buf);
         } else {
