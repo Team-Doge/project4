@@ -82,6 +82,7 @@ int main() {
     FD_ZERO(&socks);
     FD_SET(sock, &socks);
     packet buf;
+    // included to adjust timeout
     struct timeval start;
     gettimeofday(&start, NULL);
     if (select(sock + 1, &socks, NULL, NULL, &t)) {
@@ -95,10 +96,11 @@ int main() {
       buf.head = *get_header(&buf);
 
       char *data = buf.data;
+      // Determine the  checksum values of the buffer data and header
       unsigned short data_check = checksum(data, buf.head.length);
       unsigned short header_check = checksum_header(&buf.head);
       unsigned short check = data_check + header_check;
-      // checking
+      // Condition to check for packet corruption
       if ((check - buf.head.checksum) == 0 && buf.head.magic == MAGIC) {
         retry_count = 0;
         if (buf.head.sequence == data_read) {
@@ -120,32 +122,36 @@ int main() {
           insert_packet_in_list(&list, &buf);
           mylog("[recv data] %d (%d)\n", buf.head.sequence, buf.head.length);          
         } else {
-          // Duplicate
+          // Received duplicate packets
           mylog("[recv duplicate] %d (%d)\n", buf.head.sequence, buf.head.length);
           send_ack(data_read, buf.head.eof, &in, sock);
         }
       } else {
+        // Checksum values did not agree; received corrupted packets
         mylog("[recv corrupted packet]\n");
         mylog("[checksum] Expected: %d Computed: %d\n", buf.head.checksum, check);
         send_ack(data_read, buf.head.eof, &in, sock);
       }
     } else {
+      // Timeout time has been reached
       mylog("[timeout]\n");
       t.tv_sec = 5;
       if (retry_count >= MAX_RETRY) {
         mylog("[max retries]\n");
         exit(1);
+      // Continue if we have not yet reached the max attempts to resend the packet
       } else {
         send_ack(data_read, buf.head.eof, &in, sock);
         retry_count++;
       }
     }
   }
-
-
   return 0;
 }
 
+/**
+ * This function calls the ack
+ */
 void send_ack(int data_read, int eof, struct sockaddr_in *in, int sock) {
   send_response_header(data_read, eof, in, sock);
   if (eof) {
@@ -155,6 +161,9 @@ void send_ack(int data_read, int eof, struct sockaddr_in *in, int sock) {
   }
 }
 
+/**
+ * This function sends the ack
+ */
 void send_response_header(int offset, int eof, struct sockaddr_in* in, int sock) {
   header *responseheader = make_header(offset, 0, eof, 1);
   responseheader->sequence = htonl(responseheader->sequence);
@@ -166,6 +175,10 @@ void send_response_header(int offset, int eof, struct sockaddr_in* in, int sock)
   free(responseheader);
 }
 
+/**
+ * This function searches through the list, starting from data_read, to see if 
+ * there is any more packets that can be written
+ */
 void write_packets_from_list(packet_list_head *list, unsigned int *data_read) {
   if (list->first != NULL) {
     packet_list *current = list->first;

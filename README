@@ -1,0 +1,55 @@
+This Simple Transport Protocol Project is for CS3600 Systems and Networks at Northeastern University, taught by Professor Mislove.
+Completed by: Josh Caron
+	      Michelle Suk
+
+This project contains:
+	3600recv.c
+	3600send.c
+	3600sendrecv.c
+	3600sendrecv.h
+
+This program had to be run on the cs3600tcp.ccs.neu.edu machine in order to be able to change the network emulation.
+
+The sending program can be launched by typing
+./3600send <recv_host>:<recv_port>
+	The recv_host is the IP address of the remote host in a.b.c.d format.
+	The recv_port is the UDP port of the remote host.
+
+The receiving program can be launched by typing
+./3600recv
+
+The network can be configured by using the following:
+/course/cs3600sp14/bin/project4/netsim [--bandwidth <bw-in-mbps>]
+	[--latency <latency-in-ms>] [--delay <percent>]
+	[--drop <percent>] [--reorder <percent>]
+	[--corrupt <percent>] [--duplicate <percent>]
+
+The program could be run by executing:
+./run
+
+This could be configured by:
+./run [--size (small|medium|large|huge)] [--printlog] [--timeout <seconds>]
+
+The test script for the program can be run by typing (the test script is provided by Alan Mislove):
+make test
+
+
+This project is entirely coded in C, and uses some starter code provided by Alan Mislove.  
+
+We began our approach by making sure that we could receive and send packets across a friendly network.  In this portion
+of the project, we did not have to deal with duplication, drops, reordering, corruption, etc.  After successfully passing 
+the friendly tests given in the milestone, we needed to change out implementation tactic.  Initially, we had a fixed sliding
+window.  In order to consider packets being sent and received, we needed to have an adjusting sliding window.  Also, we needed
+to find a way to adjust our timeout so that it waited for packets, without delaying our process too long.  We also included an
+implementation of checksum to determine whether there was corruption in our packets.  For our buffer of packets, we decided to 
+write the packets into a linked list in order to have an ordered buffer of packets by sequence numbers.  By doing so, we hoped 
+to improve the efficiency and time performance of our program.  
+
+A major challenge we faced in this project was trying to resolve the optimal adjusting window size and timeout.  
+A conflict we kept having is that our timeout would come too soon and cause the packets to drop too quickly.
+In order to resolve our conflicts, we needed to observe the sending and receiving times of the packets and have
+a sliding window that adjusted so that with a slower rate of sending/receiving packets, the window size would decrease,
+while with a faster rate of sending and receiving, the window size would increase for optimal performanace.
+
+In order to test our program, we used the different network emulations and ran our program with different configurations to 
+simulate an unfriendly network.

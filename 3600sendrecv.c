@@ -65,6 +65,7 @@ header *make_header(int sequence, int length, int eof, int ack) {
   myheader->sequence = sequence;
   myheader->length = length;
   myheader->ack = ack;
+  // included to hold value of checksum in header
   myheader->checksum = 0;
   return myheader;
 }
@@ -146,10 +147,17 @@ void dump_packet(unsigned char *data, int size) {
     }
 }
 
+/**
+ * This function prints the header
+ */
 void print_header(header *h) {
   mylog("[header dump] Magic: %d Ack: %d EOF: %d Length %d Sequence %d Checksum %d\n", h->magic, h->ack, h->eof, h->length, h->sequence, h->checksum);
 }
 
+/**
+ * This function takes in a packet and inserts it into a linked list (serving 
+ * as a buffer)
+ */
 void insert_packet_in_list(packet_list_head *list, packet *p) {
   if (list->first == NULL) {
     // Add as the first item
@@ -199,6 +207,10 @@ void insert_packet_in_list(packet_list_head *list, packet *p) {
   }
 }
 
+
+/**
+ * This function removes any packets from the list that are below the sequence number. 
+ */
 void remove_packets_from_list(packet_list_head *list, unsigned int seq) {
   if (list->first == NULL) {
     return;
@@ -216,6 +228,9 @@ void remove_packets_from_list(packet_list_head *list, unsigned int seq) {
   }
 }
 
+/**
+ * This function determines the checksum of the packet for packet corruption
+ */
 unsigned short checksum(char *buf, unsigned short length) {
   unsigned long sum = 0;
   for (int i = 0; i < length; i++) {
@@ -236,6 +251,9 @@ unsigned short checksum(char *buf, unsigned short length) {
   }
 } 
 
+/**
+ * This function takes the checksum of the packet header
+ */
 unsigned short checksum_header(header *h) {
   unsigned long sum = 0;
   sum += h->magic;

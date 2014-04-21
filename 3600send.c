@@ -22,6 +22,7 @@
 
 #include "3600sendrecv.h"
 
+// included to limit the number of resends
 static int MAX_RETRY = 5;
 
 void usage() {
@@ -42,7 +43,7 @@ int get_next_data(char *data, int size) {
  */
 void *get_next_packet(int sequence, int *len) {
   char *data = malloc(DATA_SIZE);
-   int data_len = get_next_data(data, DATA_SIZE);
+  int data_len = get_next_data(data, DATA_SIZE);
 
   if (data_len == 0) {
     free(data);
@@ -62,8 +63,12 @@ void *get_next_packet(int sequence, int *len) {
   return packet;
 }
 
+/**
+ * This function sends a given packet
+ */
 int send_packet(int sock, struct sockaddr_in out, packet* p) {
   mylog("[send data] %d (%d)\n", p->head.sequence, p->head.length);
+  // determines the checksum values of the sending packets to test for corruption
   unsigned short data_check = checksum(p->data, p->head.length);
   unsigned short header_check = checksum_header(&p->head);
   p->head.sequence = htonl(p->head.sequence);
@@ -80,9 +85,13 @@ int send_packet(int sock, struct sockaddr_in out, packet* p) {
 
 }
 
+/**
+ * This function sends the last packet (eof)
+ */
 void send_final_packet(int window_top, int sock, struct sockaddr_in out) {
   header *myheader = make_header(window_top, 0, 1, 0);
   mylog("[send eof]\n");
+  // checksum values should be 0 at eof since length of buffer is 0
   myheader->checksum = htons(checksum_header(myheader));
   myheader->sequence = htonl(myheader->sequence);
   myheader->length = htons(myheader->length);
@@ -132,10 +141,12 @@ int main(int argc, char *argv[]) {
   // construct the socket set
   fd_set socks;
 
+  // setting up for sliding window
   int max_window_size = 10;
   int window_size = 1;
   unsigned int window_bottom = 0;
   unsigned int window_top = 0;
+  // prepare for when an eof is sent
   unsigned int eof_sent = 0;
   packet_list_head p_list;
   p_list.first = NULL;
@@ -164,9 +175,10 @@ int main(int argc, char *argv[]) {
       t.tv_sec = 5 * retry_count + 10;
       t.tv_usec = 0;
 
-
+      // keep count of the number of attempts a packet resends
       if (retry_count > 0) {
         mylog("[retry %d]\n", retry_count);
+        // reached the end of the sliding window
         if (window_bottom == window_top) {
           send_final_packet(window_top, sock, out);
         } else {
@@ -183,12 +195,15 @@ int main(int argc, char *argv[]) {
           perror("recvfrom");
           exit(1);
         }
+
+        // tracking how long it takes to get a response
         struct timeval ack_return, roundtrip_time;
         gettimeofday(&ack_return, NULL);
         timeval_subtract(&roundtrip_time, &ack_return, &sending_start);
 
         mylog("Roundtrip time: %d.%d\n", roundtrip_time.tv_sec, roundtrip_time.tv_usec);
 
+        // get the header values for the packet
         buf.head = *get_header(&buf);
         if (buf.head.magic == MAGIC && buf.head.ack == 1 && window_bottom <= buf.head.sequence) {
           received_ack = 1;
@@ -230,6 +245,9 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
+/**
+ * This function sends the amount packets starting at window top offset
+ */
 int send_packet_window(unsigned int amount, unsigned int window_top, int sock, struct sockaddr_in out, packet_list_head *p_list) {
   mylog("Sending %u packets.\n", amount);
   while (amount > 0) {
