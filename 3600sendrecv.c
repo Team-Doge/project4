@@ -162,13 +162,3 @@ unsigned short checksum(unsigned short *buf, unsigned short buf_len) {
   }
   return ~(sum & 0xFFFF);
 } 
-
-int checksum_compare(unsigned short check_receiver, unsigned short check_sender) {
-  if (check_receiver & check_sender == 0) {
-    // Checksums of receiver and sender do not match.  Corrupt
-    return -1;
-  }
-  else {
-    return 0;
-  }
-}

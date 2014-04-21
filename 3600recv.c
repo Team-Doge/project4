@@ -89,13 +89,28 @@ int main() {
       }
 
       buf.head = *get_header(&buf);
-
-      if (buf.head.magic == MAGIC) {
+      char *data = buf.data;
+      unsigned int check = checksum((unsigned short *) *data, (unsigned short) sizeof(packet));
+      mylog("CHECKSUM RESULT: %d\n", check);
+      if (check != 0) {
+        mylog("[recv corrupted packet - checksum]\n");
+        mylog("Checksum: Buffer = %d\n", (unsigned int *) *data);
+        mylog("Checksum: Buffer Length = %d\n", sizeof(packet));
+        mylog("Checksum: Sum = %d\n", check);
+        exit(0);
+      }
+      else {
+      // SIMPLY FOR DEBUGGING PURPOSES.  DELETE ELSE AFTER
+        mylog("[recv check - checksum]\n");
+        mylog("Checksum: Buffer = %d\n", *data);
+        mylog("Checksum: Buffer Length = %d\n", sizeof(packet));
+        mylog("Checksum: Sum = %d\n", check);
+      }
+      if (check == 0 || buf.head.magic == MAGIC) {
         mylog("[recv data] %d (%d) %s\n", buf.head.sequence, buf.head.length, "ACCEPTED (in-order)");
         // mylog("Current sequence number: %d. Received: %d.\n", data_read, buf.head.sequence);
         if (buf.head.sequence == data_read) {
           // Write it
-          char *data = buf.data;
           write(1, data, buf.head.length);
           data_read += buf.head.length;
           write_packets_from_list(&list, &data_read);
@@ -104,21 +119,6 @@ int main() {
             mylog("[recv eof]\n");
             mylog("[completed]\n");
             exit(0);
-          }
-          unsigned int check = checksum((unsigned short *) *data, (unsigned short) sizeof(packet));
-          if (check != 0) {
-            mylog("[recv corrupted packet - checksum]\n");
-            mylog("Checksum: Buffer = %d\n", (unsigned int *) *data);
-            mylog("Checksum: Buffer Length = %d\n", sizeof(packet));
-            mylog("Checksum: Sum = %d\n", check);
-            exit(0);
-          }
-          else {
-          // SIMPLY FOR DEBUGGING PURPOSES.  DELETE ELSE AFTER
-            mylog("[recv check - checksum]\n");
-            mylog("Checksum: Buffer = %d\n", *data);
-            mylog("Checksum: Buffer Length = %d\n", sizeof(packet));
-            mylog("Checksum: Sum = %d\n", check);
           }
         } else if (buf.head.sequence > data_read) {
             insert_packet_in_list(&list, &buf);

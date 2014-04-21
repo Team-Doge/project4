@@ -23,7 +23,6 @@ typedef struct header_t {
 
 typedef struct packet_t {
 	header head;
-  unsigned short checksm;
 	char data[DATA_SIZE];
 } packet;
 
@@ -53,7 +52,6 @@ void insert_packet_in_list(packet_list_head *list, packet *p);
 void write_packets_from_list(packet_list_head *list, unsigned int *data_read);
 
 unsigned short checksum(unsigned short *buf, unsigned short buf_len);
-int checksum_compare(unsigned short check_receiver, unsigned short check_sender); // have not used this function yet!
 
 #endif
 
