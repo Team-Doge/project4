@@ -65,16 +65,18 @@ void *get_next_packet(int sequence, int *len) {
 
 int send_packet(int sock, struct sockaddr_in out, packet* p) {
   mylog("[send data] %d (%d)\n", p->head.sequence, p->head.length);
+  unsigned short data_check = checksum(p->data, p->head.length);
+  unsigned short header_check = checksum_header(&p->head);
   p->head.sequence = htonl(p->head.sequence);
+  p->head.checksum = htons(data_check + header_check);
   p->head.length = htons(p->head.length);
   if (sendto(sock, p, p->head.length + sizeof(header), 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
     perror("sendto");
     exit(1);
   }
-
+  p->head.checksum = ntohs(p->head.checksum);
   p->head.sequence = ntohl(p->head.sequence);
   p->head.length = ntohs(p->head.length);
-
   return p->head.length;
 
 }
@@ -82,6 +84,7 @@ int send_packet(int sock, struct sockaddr_in out, packet* p) {
 void send_final_packet(int window_top, int sock, struct sockaddr_in out) {
   header *myheader = make_header(window_top, 0, 1, 0);
   mylog("[send eof]\n");
+  myheader->checksum = htons(checksum_header(myheader));
   myheader->sequence = htonl(myheader->sequence);
   myheader->length = htons(myheader->length);
   if (sendto(sock, myheader, sizeof(header), 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {

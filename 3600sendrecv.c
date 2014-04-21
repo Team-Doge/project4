@@ -65,7 +65,7 @@ header *make_header(int sequence, int length, int eof, int ack) {
   myheader->sequence = sequence;
   myheader->length = length;
   myheader->ack = ack;
-
+  myheader->checksum = 0;
   return myheader;
 }
 
@@ -77,6 +77,7 @@ header *get_header(void *data) {
   header *h = (header *) data;
   h->sequence = ntohl(h->sequence);
   h->length = ntohs(h->length);
+  h->checksum = ntohs(h->checksum);
 
   return h;
 }
@@ -146,7 +147,7 @@ void dump_packet(unsigned char *data, int size) {
 }
 
 void print_header(header *h) {
-  mylog("[header dump] Magic: %d Ack: %d EOF: %d Length %d Sequence %d\n", h->magic, h->ack, h->eof, h->length, h->sequence);
+  mylog("[header dump] Magic: %d Ack: %d EOF: %d Length %d Sequence %d Checksum %d\n", h->magic, h->ack, h->eof, h->length, h->sequence, h->checksum);
 }
 
 void insert_packet_in_list(packet_list_head *list, packet *p) {
@@ -213,4 +214,64 @@ void remove_packets_from_list(packet_list_head *list, unsigned int seq) {
     }
     current = list->first;
   }
+}
+
+unsigned short checksum(char *buf, unsigned short length) {
+  unsigned long sum = 0;
+  for (int i = 0; i < length; i++) {
+    char c = buf[i];
+    sum += c;
+    if (sum & 0xFFFF0000) {
+      // carry occurred, wrap around
+      sum &= 0xFFFF;
+      sum++;
+    }
+  }
+  
+  // This is probably bad
+  if (sum == 0) {
+    return 0;
+  } else {
+    return ~(sum & 0xFFFF);    
+  }
+} 
+
+unsigned short checksum_header(header *h) {
+  unsigned long sum = 0;
+  sum += h->magic;
+  if (sum & 0xFFFF0000) {
+    // carry occurred, wrap around
+    sum &= 0xFFFF;
+    sum++;
+  }
+
+  sum += h->ack;
+  if (sum & 0xFFFF0000) {
+    // carry occurred, wrap around
+    sum &= 0xFFFF;
+    sum++;
+  }
+
+  sum += h->eof;
+  if (sum & 0xFFFF0000) {
+    // carry occurred, wrap around
+    sum &= 0xFFFF;
+    sum++;
+  }
+
+  sum += h->length;
+  if (sum & 0xFFFF0000) {
+    // carry occurred, wrap around
+    sum &= 0xFFFF;
+    sum++;
+  }
+
+  sum += h->sequence;
+  if (sum & 0xFFFF0000) {
+    // carry occurred, wrap around
+    sum &= 0xFFFF;
+    sum++;
+  }
+
+  return ~(sum & 0xFFFF);
 }

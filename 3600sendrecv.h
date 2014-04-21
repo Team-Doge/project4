@@ -19,6 +19,7 @@ typedef struct header_t {
   unsigned int eof:1;
   unsigned short length;
   unsigned int sequence;
+  unsigned short checksum;
 } header;
 
 typedef struct packet_t {
@@ -53,5 +54,7 @@ void write_packets_from_list(packet_list_head *list, unsigned int *data_read);
 int send_packet(int sock, struct sockaddr_in out, packet* p);
 int send_packet_window(unsigned int amount, unsigned int window_top, int sock, struct sockaddr_in out, packet_list_head *p_list);
 void remove_packets_from_list(packet_list_head *list, unsigned int seq);
+unsigned short checksum(char *buf, unsigned short length);
+unsigned short checksum_header(header *header);
 #endif
 

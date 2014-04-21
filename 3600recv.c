@@ -94,7 +94,12 @@ int main() {
       gettimeofday(&end, NULL);
       buf.head = *get_header(&buf);
 
-      if (buf.head.magic == MAGIC) {
+      char *data = buf.data;
+      unsigned short data_check = checksum(data, buf.head.length);
+      unsigned short header_check = checksum_header(&buf.head);
+      unsigned short check = data_check + header_check;
+      // checking
+      if ((check - buf.head.checksum) == 0 && buf.head.magic == MAGIC) {
         retry_count = 0;
         if (buf.head.sequence == data_read) {
          if (buf.head.eof) {
@@ -103,7 +108,6 @@ int main() {
             mylog("[recv data] %d (%d)\n", buf.head.sequence, buf.head.length);          
           }
           // Write it
-          char *data = buf.data;
           write(1, data, buf.head.length);
           data_read += buf.head.length;
           write_packets_from_list(&list, &data_read);
@@ -122,6 +126,8 @@ int main() {
         }
       } else {
         mylog("[recv corrupted packet]\n");
+        mylog("[checksum] Expected: %d Computed: %d\n", buf.head.checksum, check);
+        send_ack(data_read, buf.head.eof, &in, sock);
       }
     } else {
       mylog("[timeout]\n");
