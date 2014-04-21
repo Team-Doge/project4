@@ -62,8 +62,8 @@ header *make_header(int sequence, int length, int eof, int ack) {
   header *myheader = (header *) malloc(sizeof(header));
   myheader->magic = MAGIC;
   myheader->eof = eof;
-  myheader->sequence = htonl(sequence);
-  myheader->length = htons(length);
+  myheader->sequence = sequence;
+  myheader->length = length;
   myheader->ack = ack;
 
   return myheader;
@@ -146,9 +146,71 @@ void dump_packet(unsigned char *data, int size) {
 }
 
 void print_header(header *h) {
-  mylog("Magic: %d\n", h->magic);
-  mylog("Ack: %d\n", h->ack);
-  mylog("EOF: %d\n", h->eof);
-  mylog("Length: %d\n", h->length);
-  mylog("Sequence: %d\n", h->sequence);
+  mylog("[header dump] Magic: %d Ack: %d EOF: %d Length %d Sequence %d\n", h->magic, h->ack, h->eof, h->length, h->sequence);
+}
+
+void insert_packet_in_list(packet_list_head *list, packet *p) {
+  if (list->first == NULL) {
+    // Add as the first item
+    packet_list *new_head = (packet_list *) calloc(1, sizeof(packet_list));
+    new_head->pack = *p;
+    new_head->next = NULL;
+    list->first = new_head;
+    return;
+  }
+
+  packet_list *current = list->first;
+  packet_list *next = list->first->next;
+  unsigned int p_seq = p->head.sequence;
+  while (current != NULL) {
+    unsigned int c_seq = current->pack.head.sequence;
+
+    if (c_seq == p_seq) {
+      mylog("[duplicate packet - did not save]\n");
+      return;
+    }
+
+    if (current == list->first && p_seq < c_seq) {
+      // new first
+      packet_list *new_next = (packet_list *) calloc(1, sizeof(packet_list));
+      new_next->pack = *p;
+      new_next->next = current->next;
+      list->first = new_next;
+      break;
+    } else if (next == NULL) {
+      // add to end of list
+      packet_list *new_next = (packet_list *) calloc(1, sizeof(packet_list));
+      new_next->pack = *p;
+      new_next->next = NULL;
+      current->next = new_next;
+      break;
+    } else if (next->pack.head.sequence > p_seq) {
+      // insert it
+      packet_list *new_next = (packet_list *) calloc(1, sizeof(packet_list));
+      new_next->pack = *p;
+      new_next->next = current->next;
+      current->next = new_next;
+      break;
+    }
+
+    current = current->next;
+    next = current->next;
+  }
+}
+
+void remove_packets_from_list(packet_list_head *list, unsigned int seq) {
+  if (list->first == NULL) {
+    return;
+  }
+
+  packet_list *current = list->first;
+  while (current != NULL) {
+    if (current->pack.head.sequence < seq) {
+      list->first = current->next;
+      free(current);
+    } else {
+      break;
+    }
+    current = list->first;
+  }
 }

@@ -50,5 +50,8 @@ void print_header(header *h);
 void send_ack(int data_read, int eof, struct sockaddr_in *in, int sock);
 void insert_packet_in_list(packet_list_head *list, packet *p);
 void write_packets_from_list(packet_list_head *list, unsigned int *data_read);
+int send_packet(int sock, struct sockaddr_in out, packet* p);
+int send_packet_window(unsigned int amount, unsigned int window_top, int sock, struct sockaddr_in out, packet_list_head *p_list);
+void remove_packets_from_list(packet_list_head *list, unsigned int seq);
 #endif
 

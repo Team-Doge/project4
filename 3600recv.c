@@ -65,35 +65,43 @@ int main() {
   // construct the socket set
   fd_set socks;
 
-  // construct the timeout
-  struct timeval t;
-  t.tv_sec = 30;
-  t.tv_usec = 0;
-
   // our receive buffer
   unsigned int data_read = 0;
   packet_list_head list;
   list.first = NULL;
+  unsigned int retry_count = 0;
+  unsigned int MAX_RETRY = 10;
+
+  // construct the timeout
+  struct timeval t;
+  t.tv_sec = 30;
+  t.tv_usec = 0;
+  FD_ZERO(&socks);
+  FD_SET(sock, &socks);
 
   // wait to receive, or for a timeout
   while (1) {
-    FD_ZERO(&socks);
-    FD_SET(sock, &socks);
     packet buf;
-
+    struct timeval start;
+    gettimeofday(&start, NULL);
     if (select(sock + 1, &socks, NULL, NULL, &t)) {
       int received;
       if ((received = recvfrom(sock, &buf, sizeof(packet), 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
         perror("recvfrom");
         exit(1);
       }
-
+      struct timeval end;
+      gettimeofday(&end, NULL);
       buf.head = *get_header(&buf);
 
       if (buf.head.magic == MAGIC) {
-        mylog("[recv data] %d (%d) %s\n", buf.head.sequence, buf.head.length, "ACCEPTED (in-order)");
-        // mylog("Current sequence number: %d. Received: %d.\n", data_read, buf.head.sequence);
+        retry_count = 0;
         if (buf.head.sequence == data_read) {
+         if (buf.head.eof) {
+            mylog("[recv eof]\n");
+          } else {
+            mylog("[recv data] %d (%d)\n", buf.head.sequence, buf.head.length);          
+          }
           // Write it
           char *data = buf.data;
           write(1, data, buf.head.length);
@@ -101,21 +109,30 @@ int main() {
           write_packets_from_list(&list, &data_read);
           send_ack(data_read, buf.head.eof, &in, sock);
           if (buf.head.eof) {
-            mylog("[recv eof]\n");
             mylog("[completed]\n");
             exit(0);
           }
         } else if (buf.head.sequence > data_read) {
-            insert_packet_in_list(&list, &buf);
+          insert_packet_in_list(&list, &buf);
+          mylog("[recv data] %d (%d)\n", buf.head.sequence, buf.head.length);          
         } else {
           // Duplicate
+          mylog("[recv duplicate] %d (%d)\n", buf.head.sequence, buf.head.length);
+          send_ack(data_read, buf.head.eof, &in, sock);
         }
       } else {
         mylog("[recv corrupted packet]\n");
       }
     } else {
-      mylog("[error] timeout occurred\n");
-      exit(1);
+      mylog("[timeout]\n");
+      t.tv_sec = 5;
+      if (retry_count >= MAX_RETRY) {
+        mylog("[max retries]\n");
+        exit(1);
+      } else {
+        send_ack(data_read, buf.head.eof, &in, sock);
+        retry_count++;
+      }
     }
   }
 
@@ -124,39 +141,23 @@ int main() {
 }
 
 void send_ack(int data_read, int eof, struct sockaddr_in *in, int sock) {
-  mylog("[send ack] %d\n", data_read);
   send_response_header(data_read, eof, in, sock);
+  if (eof) {
+    mylog("[send eof ack]\n");
+  } else {
+    mylog("[send ack] %d\n", data_read);    
+  }
 }
 
 void send_response_header(int offset, int eof, struct sockaddr_in* in, int sock) {
   header *responseheader = make_header(offset, 0, eof, 1);
+  responseheader->sequence = htonl(responseheader->sequence);
+  responseheader->length = htons(responseheader->length);
   if (sendto(sock, responseheader, sizeof(header), 0, (struct sockaddr *) in, (socklen_t) sizeof(*in)) < 0) {
     perror("sendto");
     exit(1);
   }
-}
-
-void insert_packet_in_list(packet_list_head *list, packet *p) {
-  if (list->first == NULL) {
-    // Add as the first item
-    packet_list *new_head = (packet_list *) calloc(1, sizeof(packet_list));
-    new_head->pack = *p;
-    new_head->next = NULL;
-    list->first = new_head;
-    return;
-  }
-
-  packet_list *current = list->first;
-  while (current != NULL) {
-    if (current->pack.head.sequence < p->head.sequence) {
-      packet_list *new_next = (packet_list *) calloc(1, sizeof(packet_list));
-      new_next->pack = *p;
-      new_next->next = current->next;
-      current->next = new_next;
-      return;
-    }
-    current = current->next;
-  }
+  free(responseheader);
 }
 
 void write_packets_from_list(packet_list_head *list, unsigned int *data_read) {

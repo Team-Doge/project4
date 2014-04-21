@@ -22,7 +22,8 @@
 
 #include "3600sendrecv.h"
 
-unsigned int sequence = 0;
+static int MAX_RETRY = 20;
+static int MAX_WINDOW_SIZE = 10;
 
 void usage() {
   printf("Usage: 3600send host:port\n");
@@ -62,27 +63,27 @@ void *get_next_packet(int sequence, int *len) {
   return packet;
 }
 
-int send_next_packet(int sock, struct sockaddr_in out) {
-  int packet_len = 0;
-  void *packet = get_next_packet(sequence, &packet_len);
-
-  if (packet == NULL) 
-    return 0;
-
-  mylog("[send data] %d (%d)\n", sequence, packet_len - sizeof(header));
-
-  if (sendto(sock, packet, packet_len, 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
+int send_packet(int sock, struct sockaddr_in out, packet* p) {
+  mylog("[send data] %d (%d)\n", p->head.sequence, p->head.length);
+  p->head.sequence = htonl(p->head.sequence);
+  p->head.length = htons(p->head.length);
+  if (sendto(sock, p, p->head.length + sizeof(header), 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
     perror("sendto");
     exit(1);
   }
 
-  return packet_len - sizeof(header);
+  p->head.sequence = ntohl(p->head.sequence);
+  p->head.length = ntohs(p->head.length);
+
+  return p->head.length;
+
 }
 
-void send_final_packet(int sock, struct sockaddr_in out) {
-  header *myheader = make_header(sequence, 0, 1, 0);
+void send_final_packet(int window_top, int sock, struct sockaddr_in out) {
+  header *myheader = make_header(window_top, 0, 1, 0);
   mylog("[send eof]\n");
-
+  myheader->sequence = htonl(myheader->sequence);
+  myheader->length = htons(myheader->length);
   if (sendto(sock, myheader, sizeof(header), 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
     perror("sendto");
     exit(1);
@@ -129,94 +130,97 @@ int main(int argc, char *argv[]) {
   // construct the socket set
   fd_set socks;
 
-  // construct the timeout
-  struct timeval t;
-  t.tv_sec = 30;
-  t.tv_usec = 0;
-
-  int seq_num = 0;
   int window_size = 10;
-  int last_ack = -1;
-  int incomplete = 1;
-  int outstanding = 0;
+  unsigned int window_bottom = 0;
+  unsigned int window_top = 0;
+  unsigned int eof_sent = 0;
+  packet_list_head p_list;
+  p_list.first = NULL;
 
-  while (incomplete) {
-    while (outstanding < window_size) {
-      incomplete = send_next_packet(sock, out);
-      seq_num++;
-      sequence += incomplete;
-      outstanding++;
+  while (1) {
+    // If everything has been acknowledged, send EOF
+    if (window_bottom == window_top && window_top != 0 && eof_sent == 0) {
+      send_final_packet(window_top, sock, out);
+      eof_sent = 1;
+    } else {
+      // Send the sliding window
+      window_top = send_packet_window(window_size, window_top, sock, out, &p_list);
     }
 
-    int done = 0;
-
-    while (! done) {
+    // Prepare for an ack to come back
+    int received_ack = 0;
+    int retry_count = 0;
+    while (!received_ack) {
       FD_ZERO(&socks);
       FD_SET(sock, &socks);
+      // construct the timeout
+      struct timeval t;
+      t.tv_sec = 1;
+      t.tv_usec = 0;
 
-      // wait to receive, or for a timeout
+
+      if (retry_count > 0) {
+        mylog("[retry %d]\n", retry_count);
+        if (window_bottom == window_top) {
+          send_final_packet(window_top, sock, out);
+        } else {
+          // Send the bottom-most packet
+          mylog("[resend data]\n");
+          send_packet(sock, out, &p_list.first->pack);
+        }
+      }
+      // Wait for the ack
       if (select(sock + 1, &socks, NULL, NULL, &t)) {
-        unsigned char buf[10000];
-        int buf_len = sizeof(buf);
+        packet buf;
         int received;
-        if ((received = recvfrom(sock, &buf, buf_len, 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
+        if ((received = recvfrom(sock, &buf, sizeof(packet), 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
           perror("recvfrom");
           exit(1);
         }
-
-        header *myheader = get_header(buf);
-
-        if ((myheader->magic == MAGIC) && (myheader->sequence <= sequence) && (myheader->ack == 1)) {
-          mylog("[recv ack] %d\n", myheader->sequence);
-          last_ack = myheader->sequence;
-          done = 1;
-          outstanding = seq_num - (last_ack / DATA_SIZE);
+        buf.head = *get_header(&buf);
+        if (buf.head.magic == MAGIC && buf.head.ack == 1 && window_bottom <= buf.head.sequence) {
+          received_ack = 1;
+          window_size = MAX_WINDOW_SIZE - ((window_top - buf.head.sequence) / DATA_SIZE);
+          window_bottom = buf.head.sequence;
+          remove_packets_from_list(&p_list, window_bottom);
+          if (buf.head.eof == 1) {
+            mylog("[recv eof ack]\n");
+            mylog("[completed]\n");
+            return 0;
+          } else {
+            mylog("[recv ack] %d\n", buf.head.sequence);
+          }
         } else {
-          mylog("[recv corrupted ack] %x %d\n", MAGIC, sequence);
+          mylog("[recv corrupted/duplicate ack] %x %d\n", MAGIC, buf.head.sequence);
         }
       } else {
-        mylog("[error] timeout occurred\n");
+        // timeout occured
+        mylog("[timeout]\n");
+        if (retry_count >= MAX_RETRY) {
+          mylog("[max retries]\n");
+          exit(1);
+        } else {
+          retry_count++;
+        }
       }
     }
   }
 
-
-  // while (send_next_packet(sock, out)) {
-  //   int done = 0;
-
-  //   while (! done) {
-  //     FD_ZERO(&socks);
-  //     FD_SET(sock, &socks);
-
-  //     // wait to receive, or for a timeout
-  //     if (select(sock + 1, &socks, NULL, NULL, &t)) {
-  //       unsigned char buf[10000];
-  //       int buf_len = sizeof(buf);
-  //       int received;
-  //       if ((r
-  //         eceived = recvfrom(sock, &buf, buf_len, 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
-  //         perror("recvfrom");
-  //         exit(1);
-  //       }
-
-  //       header *myheader = get_header(buf);
-
-  //       if ((myheader->magic == MAGIC) && (myheader->sequence >= sequence) && (myheader->ack == 1)) {
-  //         mylog("[recv ack] %d\n", myheader->sequence);
-  //         sequence = myheader->sequence;
-  //         done = 1;
-  //       } else {
-  //         mylog("[recv corrupted ack] %x %d\n", MAGIC, sequence);
-  //       }
-  //     } else {
-  //       mylog("[error] timeout occurred\n");
-  //     }
-  //   }
-  // }
-
-  send_final_packet(sock, out);
-
-  mylog("[completed]\n");
-
   return 0;
+}
+
+int send_packet_window(unsigned int amount, unsigned int window_top, int sock, struct sockaddr_in out, packet_list_head *p_list) {
+  while (amount > 0) {
+    int p_len = 0;
+    packet *p = get_next_packet(window_top, &p_len);
+    if (p != NULL) {
+      int data_sent = send_packet(sock, out, p);
+      insert_packet_in_list(p_list, p);
+      window_top += data_sent;
+      amount--;
+    } else {
+      break;
+    }
+  }
+  return window_top;
 }
