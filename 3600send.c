@@ -22,8 +22,7 @@
 
 #include "3600sendrecv.h"
 
-static int MAX_RETRY = 20;
-static int MAX_WINDOW_SIZE = 10;
+static int MAX_RETRY = 5;
 
 void usage() {
   printf("Usage: 3600send host:port\n");
@@ -133,7 +132,8 @@ int main(int argc, char *argv[]) {
   // construct the socket set
   fd_set socks;
 
-  int window_size = 10;
+  int max_window_size = 10;
+  int window_size = 1;
   unsigned int window_bottom = 0;
   unsigned int window_top = 0;
   unsigned int eof_sent = 0;
@@ -141,14 +141,17 @@ int main(int argc, char *argv[]) {
   p_list.first = NULL;
 
   while (1) {
-    // If everything has been acknowledged, send EOF
-    if (window_bottom == window_top && window_top != 0 && eof_sent == 0) {
+    struct timeval sending_start;
+    gettimeofday(&sending_start, NULL);
+
+    unsigned int new_top = send_packet_window(window_size, window_top, sock, out, &p_list);
+    if (new_top == window_top && window_size > 0 && window_bottom == window_top && window_top != 0 && eof_sent == 0) {
+      // No more data to send
       send_final_packet(window_top, sock, out);
       eof_sent = 1;
-    } else {
-      // Send the sliding window
-      window_top = send_packet_window(window_size, window_top, sock, out, &p_list);
     }
+
+    window_top = new_top;
 
     // Prepare for an ack to come back
     int received_ack = 0;
@@ -158,7 +161,7 @@ int main(int argc, char *argv[]) {
       FD_SET(sock, &socks);
       // construct the timeout
       struct timeval t;
-      t.tv_sec = 1;
+      t.tv_sec = 5 * retry_count + 10;
       t.tv_usec = 0;
 
 
@@ -180,10 +183,23 @@ int main(int argc, char *argv[]) {
           perror("recvfrom");
           exit(1);
         }
+        struct timeval ack_return, roundtrip_time;
+        gettimeofday(&ack_return, NULL);
+        timeval_subtract(&roundtrip_time, &ack_return, &sending_start);
+
+        mylog("Roundtrip time: %d.%d\n", roundtrip_time.tv_sec, roundtrip_time.tv_usec);
+
         buf.head = *get_header(&buf);
         if (buf.head.magic == MAGIC && buf.head.ack == 1 && window_bottom <= buf.head.sequence) {
           received_ack = 1;
-          window_size = MAX_WINDOW_SIZE - ((window_top - buf.head.sequence) / DATA_SIZE);
+          max_window_size = (10000000 / ((roundtrip_time.tv_sec * 1000000) + roundtrip_time.tv_usec));
+          if (max_window_size <= 0) {
+            max_window_size = 1;
+          }
+          window_size = max_window_size - ((window_top - buf.head.sequence) / DATA_SIZE);
+          if (window_size <= 0) {
+            window_size = 1;
+          }
           window_bottom = buf.head.sequence;
           remove_packets_from_list(&p_list, window_bottom);
           if (buf.head.eof == 1) {
@@ -195,6 +211,8 @@ int main(int argc, char *argv[]) {
           }
         } else {
           mylog("[recv corrupted/duplicate ack] %x %d\n", MAGIC, buf.head.sequence);
+          mylog("[resend data]\n");
+          send_packet(sock, out, &p_list.first->pack);
         }
       } else {
         // timeout occured
@@ -213,6 +231,7 @@ int main(int argc, char *argv[]) {
 }
 
 int send_packet_window(unsigned int amount, unsigned int window_top, int sock, struct sockaddr_in out, packet_list_head *p_list) {
+  mylog("Sending %u packets.\n", amount);
   while (amount > 0) {
     int p_len = 0;
     packet *p = get_next_packet(window_top, &p_len);

@@ -56,5 +56,6 @@ int send_packet_window(unsigned int amount, unsigned int window_top, int sock, s
 void remove_packets_from_list(packet_list_head *list, unsigned int seq);
 unsigned short checksum(char *buf, unsigned short length);
 unsigned short checksum_header(header *header);
+int timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y);
 #endif
 

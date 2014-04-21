@@ -76,11 +76,11 @@ int main() {
   struct timeval t;
   t.tv_sec = 30;
   t.tv_usec = 0;
-  FD_ZERO(&socks);
-  FD_SET(sock, &socks);
 
   // wait to receive, or for a timeout
   while (1) {
+    FD_ZERO(&socks);
+    FD_SET(sock, &socks);
     packet buf;
     struct timeval start;
     gettimeofday(&start, NULL);
