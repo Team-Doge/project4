@@ -74,7 +74,7 @@ int send_packet(int sock, struct sockaddr_in out, packet* p) {
   p->head.sequence = htonl(p->head.sequence);
   p->head.checksum = htons(data_check + header_check);
   p->head.length = htons(p->head.length);
-  if (sendto(sock, p, p->head.length + sizeof(header), 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
+  if (sendto(sock, p, ntohs(p->head.length) + sizeof(header), 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
     perror("sendto");
     exit(1);
   }
