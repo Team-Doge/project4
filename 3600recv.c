@@ -121,6 +121,7 @@ int main() {
         } else if (buf.head.sequence > data_read) {
           insert_packet_in_list(&list, &buf);
           mylog("[recv data] %d (%d)\n", buf.head.sequence, buf.head.length);          
+          send_ack(data_read, buf.head.eof, &in, sock);
         } else {
           // Received duplicate packets
           mylog("[recv duplicate] %d (%d)\n", buf.head.sequence, buf.head.length);

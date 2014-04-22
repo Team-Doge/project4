@@ -172,8 +172,8 @@ int main(int argc, char *argv[]) {
       FD_SET(sock, &socks);
       // construct the timeout
       struct timeval t;
-      t.tv_sec = 5 * retry_count + 10;
-      t.tv_usec = 0;
+      t.tv_sec = retry_count / 2;
+      t.tv_usec = 500000;
 
       // keep count of the number of attempts a packet resends
       if (retry_count > 0) {
@@ -224,8 +224,11 @@ int main(int argc, char *argv[]) {
           } else {
             mylog("[recv ack] %d\n", buf.head.sequence);
           }
+        } else if (buf.head.magic == MAGIC && buf.head.ack == 1 && window_bottom > buf.head.sequence) {
+          // received an ack that was below window_bottom
+          // ignore it
         } else {
-          mylog("[recv corrupted/duplicate ack] %x %d\n", MAGIC, buf.head.sequence);
+          mylog("[recv corrupted ack] %x %d\n", MAGIC, buf.head.sequence);
           mylog("[resend data]\n");
           send_packet(sock, out, &p_list.first->pack);
         }
